@@ -1,0 +1,185 @@
+{
+  "id": "6069e3640858403f9862883b17512f03",
+  "source": "https://rafdecor.shop",
+  "mode": "insert_only",
+  "actor": "startup",
+  "started_at": "2026-10-23 20:01:42.679619+00:00",
+  "status": "completed",
+  "products": {
+    "source": 3,
+    "created": 3,
+    "updated": 0,
+    "unchanged_skipped": 0,
+    "failed": []
+  },
+  "categories": {
+    "source": 1,
+    "created": 1,
+    "updated": 0
+  },
+  "images": {
+    "source_total": 11,
+    "duplicates_in_source": 2,
+    "uploaded": 0,
+    "reused": 0,
+    "referenced_original": 9,
+    "failed": []
+  },
+  "pages": {
+    "imported": [
+      "dmca",
+      "terms-and-conditions",
+      "contact-us",
+      "refund_returns",
+      "privacy-policy"
+    ],
+    "skipped": [
+      {
+        "slug": "blog",
+        "reason": "functional page rebuilt natively"
+      },
+      {
+        "slug": "home",
+        "reason": "functional page rebuilt natively"
+      },
+      {
+        "slug": "my-account",
+        "reason": "functional page rebuilt natively"
+      },
+      {
+        "slug": "checkout",
+        "reason": "functional page rebuilt natively"
+      },
+      {
+        "slug": "cart",
+        "reason": "functional page rebuilt natively"
+      },
+      {
+        "slug": "shop",
+        "reason": "functional page rebuilt natively"
+      }
+    ],
+    "flags": [
+      {
+        "slug": "dmca",
+        "flag": "Empty on source site — content must be written by the business"
+      },
+      {
+        "slug": "terms-and-conditions",
+        "flag": "Empty on source site — content must be written by the business"
+      },
+      {
+        "slug": "contact-us",
+        "flag": "Empty on source site — content must be written by the business"
+      },
+      {
+        "slug": "refund_returns",
+        "flag": "Contains WordPress/WooCommerce default template text — review before launch"
+      },
+      {
+        "slug": "privacy-policy",
+        "flag": "Contains WordPress/WooCommerce default template text — review before launch"
+      }
+    ]
+  },
+  "missing_fields": [
+    {
+      "slug": "premium-bark-bowl",
+      "fields": [
+        "sku"
+      ]
+    },
+    {
+      "slug": "wooden-round-table",
+      "fields": [
+        "sku",
+        "stock_quantity (stock not tracked in WooCommerce)"
+      ]
+    },
+    {
+      "slug": "wooden-spice-box",
+      "fields": [
+        "sku",
+        "stock_quantity (stock not tracked in WooCommerce)"
+      ]
+    }
+  ],
+  "duplicates": [],
+  "price_reconciliation": [
+    {
+      "slug": "premium-bark-bowl",
+      "source_price": 899.0,
+      "imported_price": 899.0,
+      "match": true,
+      "variants": [
+        {
+          "attrs": {
+            "Premium Bark Bowl Size": "1.5 Inch"
+          },
+          "price": 899.0
+        },
+        {
+          "attrs": {
+            "Premium Bark Bowl Size": "3 inch"
+          },
+          "price": 1099.0
+        }
+      ],
+      "shipping_charge": 150.0
+    },
+    {
+      "slug": "wooden-round-table",
+      "source_price": 3400.0,
+      "imported_price": 3400.0,
+      "match": true,
+      "variants": [],
+      "shipping_charge": 520.0
+    },
+    {
+      "slug": "wooden-spice-box",
+      "source_price": 2200.0,
+      "imported_price": 2200.0,
+      "match": true,
+      "variants": [],
+      "shipping_charge": 340.0
+    }
+  ],
+  "mappings": [
+    {
+      "wp_id": 33,
+      "id": "51d6c9a8c0384fc5aa10f0b1c179ae80",
+      "slug": "premium-bark-bowl",
+      "old_url": "https://rafdecor.shop/product/premium-bark-bowl/",
+      "new_path": "/product/premium-bark-bowl"
+    },
+    {
+      "wp_id": 30,
+      "id": "545f44cac646458cafc034e703477e1e",
+      "slug": "wooden-round-table",
+      "old_url": "https://rafdecor.shop/product/wooden-round-table/",
+      "new_path": "/product/wooden-round-table"
+    },
+    {
+      "wp_id": 28,
+      "id": "9fba5263ad66445799cd1368e73a4078",
+      "slug": "wooden-spice-box",
+      "old_url": "https://rafdecor.shop/product/wooden-spice-box/",
+      "new_path": "/product/wooden-spice-box"
+    }
+  ],
+  "customers": {
+    "status": "not_migrated",
+    "reason": "Customer accounts are not exposed by public APIs; WooCommerce REST API keys or a database export are required."
+  },
+  "orders": {
+    "status": "not_migrated",
+    "reason": "Historical orders require WooCommerce REST API keys (read) or a database export."
+  },
+  "cloudinary_configured": false,
+  "finished_at": "2026-10-23 20:01:50.941617+00:00",
+  "destination": {
+    "products": 3,
+    "categories": 1,
+    "pages": 5
+  }
+}
