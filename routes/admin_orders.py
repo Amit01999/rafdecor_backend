@@ -1,5 +1,6 @@
 import csv
 import io
+import os
 from datetime import datetime
 from typing import Optional, Literal
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -11,10 +12,12 @@ from core.security import require_perm
 from services.inventory import release_lines, refresh_flags
 from services.payments import record_transaction, payment_status, PROVIDERS
 from services.notifications import notify
+from services import steadfast
 from routes.checkout import CUSTOMER_STATUS_LABELS
 
 router = APIRouter(prefix="/admin/orders", tags=["admin orders"])
 pay_router = APIRouter(prefix="/payments", tags=["payments"])
+courier_router = APIRouter(prefix="/couriers", tags=["couriers"])
 
 TRANSITIONS = {
     "placed": ["confirmed", "cancelled"],
@@ -162,6 +165,30 @@ async def courier(oid: str, body: CourierIn, user=Depends(require_perm("orders.w
     return {"ok": True}
 
 
+@router.post("/{oid}/steadfast")
+async def send_to_steadfast(oid: str, user=Depends(require_perm("orders.write"))):
+    o = await _get(oid)
+    result = await steadfast.create_order(o)
+    # consignment_id is saved here specifically so the webhook below (which identifies parcels by
+    # consignment_id, not tracking_code) has something reliable to match against.
+    courier_info = {"name": "Steadfast Courier", "tracking_number": result["tracking_code"], "tracking_url": "",
+                    "consignment_id": str(result["consignment_id"]) if result.get("consignment_id") is not None else None}
+    upd = {"$set": {"courier": courier_info, "updated_at": now()}}
+    # "dispatched" is this app's existing status for "handed to a courier" — reuse it (only when the
+    # order's current status actually allows that transition) instead of inventing a separate, unvalidated
+    # status string that the rest of the admin/customer status machinery wouldn't recognize.
+    if "dispatched" in TRANSITIONS.get(o["status"], []):
+        upd["$set"]["status"] = "dispatched"
+        upd["$push"] = {"status_history": {"status": "dispatched", "at": now(), "by": user["email"],
+                                           "note": f"Booked with Steadfast — tracking {result['tracking_code']}", "visible": True}}
+    await db.orders.update_one({"id": o["id"]}, upd)
+    await audit(user, "order.steadfast", "order", o["id"], {"tracking_code": result["tracking_code"], "consignment_id": result.get("consignment_id")})
+    if "status" in upd["$set"]:
+        await notify("order_status", o["customer"].get("email") or o["customer"]["phone"],
+                     f"Order {o['order_number']}: {CUSTOMER_STATUS_LABELS.get('dispatched')}", f"Tracking code: {result['tracking_code']}", o["id"])
+    return await get_order(o["id"], user)
+
+
 class PaymentIn(BaseModel):
     amount: float = Field(gt=0)
     reference: str = Field(default="", max_length=100)
@@ -220,3 +247,96 @@ async def callback(provider: str, request: Request):
         raise HTTPException(404, "Unknown payment provider")
     form = dict(await request.form())
     return await p.handle_callback(form)
+
+
+# Steadfast's own courier status wording -> this app's existing, TRANSITIONS-validated order statuses.
+# "processing" is the closest existing equivalent to Steadfast's "pending"/"in_review" — in the normal
+# flow the order is already "dispatched" by the time these arrive, so (per the TRANSITIONS check below)
+# they end up being safely observed-only anyway; they're mapped mainly for the case an order hasn't
+# reached "dispatched" yet. "partial_delivered" maps to "delivered" since this app doesn't track partial
+# delivery as its own status — the raw Steadfast wording is preserved in the status_history note either way.
+STEADFAST_STATUS_MAP = {
+    "pending": "processing",
+    "in_review": "processing",
+    "delivered": "delivered",
+    "partial_delivered": "delivered",
+    "cancelled": "cancelled",
+    "returned": "returned",
+}
+
+# Deliberately NOT mapped to a status change, even though Steadfast sends them: "hold" has no equivalent
+# in this app's pipeline, and the three "*_approval_pending" statuses are explicitly provisional — e.g.
+# mapping "cancelled_approval_pending" to "cancelled" would reverse this order's coupon usage and sales
+# counts before the cancellation is even confirmed, which Steadfast could still reverse. All four are
+# still acknowledged (200) and recorded as an internal order note, just without changing the order's
+# actual status — an admin can act on it once Steadfast's review resolves one way or the other.
+STEADFAST_OBSERVED_ONLY_STATUSES = {"hold", "delivered_approval_pending", "partial_delivered_approval_pending", "cancelled_approval_pending"}
+
+WEBHOOK_ACTOR = {"email": "steadfast-webhook"}
+
+
+@courier_router.post("/steadfast/webhook")
+async def steadfast_webhook(request: Request):
+    """Receives Steadfast's delivery-status push notifications.
+
+    Auth: Steadfast's merchant portal lets you set a callback URL plus a bearer token it will send back
+    on every call — NOT the Api-Key/Secret-Key pair used to create orders. Configure that same token here
+    as STEADFAST_WEBHOOK_TOKEN. (This header convention is the best-documented one available for Steadfast's
+    webhooks at the time of writing; confirm it still matches your portal's webhook settings before relying
+    on it, and adjust the header check below if Steadfast signs requests differently for your account.)
+
+    Always acknowledges with 200 once the request is authenticated and parseable, even if we don't end up
+    changing anything (order not found, status not recognized, or not a valid transition from where the
+    order currently is) — returning an error status for those cases would just make Steadfast retry
+    indefinitely for events we're deliberately not acting on. Only a failed/missing auth token or an
+    unparseable body get a non-200, since retrying either of those would never succeed anyway.
+    """
+    expected = os.environ.get("STEADFAST_WEBHOOK_TOKEN")
+    if not expected:
+        raise HTTPException(503, "Steadfast webhook is not configured — set STEADFAST_WEBHOOK_TOKEN")
+    if request.headers.get("authorization") != f"Bearer {expected}":
+        raise HTTPException(401, "Invalid or missing webhook token")
+    try:
+        body = await request.json()
+    except ValueError:
+        raise HTTPException(400, "Invalid JSON body")
+
+    # Exact keys per Steadfast's documented webhook payload — no alternate/legacy key names accepted.
+    invoice = body.get("invoice")
+    consignment_id = str(body["consignment_id"]) if body.get("consignment_id") is not None else None
+    raw_status = str(body.get("status") or "").strip().lower()
+
+    lookup = [q for q in ({"order_number": invoice} if invoice else None,
+                          {"courier.consignment_id": consignment_id} if consignment_id else None) if q]
+    if not lookup:
+        raise HTTPException(400, "Payload must include an 'invoice' and/or a 'consignment_id'")
+    o = await db.orders.find_one({"$or": lookup}, {"_id": 0})
+    if not o:
+        return {"ok": True, "handled": False, "reason": "No matching order for this invoice/consignment_id"}
+
+    note = f"Steadfast reported '{raw_status}' (consignment {consignment_id or invoice})"
+    new_status = STEADFAST_STATUS_MAP.get(raw_status)
+    if raw_status in STEADFAST_OBSERVED_ONLY_STATUSES or not new_status or new_status not in TRANSITIONS.get(o["status"], []):
+        # Record what Steadfast said without claiming it as a status change — as an internal note rather
+        # than a status_history entry, since the order's actual status hasn't moved.
+        await db.orders.update_one({"id": o["id"]}, {"$push": {"notes": {"text": note, "visible": False, "by": "steadfast-webhook", "at": now()}}})
+        await audit(WEBHOOK_ACTOR, "order.steadfast_webhook", "order", o["id"], {"raw_status": raw_status, "mapped_status": None})
+        return {"ok": True, "handled": False, "reason": f"Status '{raw_status}' noted but not applied (order is currently '{o['status']}')"}
+
+    entry = {"status": new_status, "at": now(), "by": "steadfast-webhook", "note": note, "visible": True}
+    res = await db.orders.update_one({"id": o["id"], "status": o["status"]},
+                                     {"$set": {"status": new_status, "updated_at": now()}, "$push": {"status_history": entry}})
+    if not res.modified_count:
+        return {"ok": True, "handled": False, "reason": "Order status changed concurrently; skipped"}
+    if new_status == "cancelled":
+        # Same bookkeeping update_status already does for a manual cancel — inventory restock is
+        # deliberately NOT automated here, since whether a returned/cancelled parcel is resalable
+        # needs a human to actually look at it.
+        if o.get("coupon_code"):
+            await db.coupons.update_one({"code": o["coupon_code"], "used_count": {"$gt": 0}}, {"$inc": {"used_count": -1}})
+        for i in o["items"]:
+            await db.products.update_one({"id": i["product_id"]}, {"$inc": {"sales_count": -i["quantity"]}})
+    await audit(WEBHOOK_ACTOR, "order.steadfast_webhook", "order", o["id"], {"raw_status": raw_status, "mapped_status": new_status})
+    await notify("order_status", o["customer"].get("email") or o["customer"]["phone"],
+                f"Order {o['order_number']}: {CUSTOMER_STATUS_LABELS.get(new_status)}", note, o["id"])
+    return {"ok": True, "handled": True, "order_number": o["order_number"], "status": new_status}

@@ -72,12 +72,14 @@ class ProductIn(BaseModel):
     dimensions: str = Field(default="", max_length=200)
     materials: str = Field(default="", max_length=200)
     shipping_charge: float = Field(default=0, ge=0)
+    weight: float = Field(default=0, ge=0)  # kg; used for multi-product weight-based delivery pricing
+    extra_qty_charge: float = Field(default=0, ge=0)  # extra delivery charge per unit beyond the first, for this product
     tags: List[str] = []
     seo: Seo = Seo()
     sort_order: int = 0
 
 
-TRACKED = ["name", "slug", "price", "sale_price", "status", "featured", "stock_quantity", "manage_stock", "category_ids", "shipping_charge", "sku"]
+TRACKED = ["name", "slug", "price", "sale_price", "status", "featured", "stock_quantity", "manage_stock", "category_ids", "shipping_charge", "weight", "extra_qty_charge", "sku"]
 
 
 def _prepare(body: ProductIn) -> dict:

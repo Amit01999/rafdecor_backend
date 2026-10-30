@@ -20,7 +20,7 @@ logger = logging.getLogger("rafdecor")
 
 app = FastAPI(title="RAF DECOR Commerce API", version="1.0.0", docs_url="/api/docs", openapi_url="/api/openapi.json", redoc_url=None)
 v1 = APIRouter(prefix="/api/v1")
-for r in (auth.router, catalog.router, checkout.router, account.router, admin_catalog.router, admin_orders.router, admin_orders.pay_router, admin_ops.router):
+for r in (auth.router, catalog.router, checkout.router, account.router, admin_catalog.router, admin_orders.router, admin_orders.pay_router, admin_orders.courier_router, admin_ops.router):
     v1.include_router(r)
 
 

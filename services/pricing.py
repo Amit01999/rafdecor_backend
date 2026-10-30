@@ -1,3 +1,4 @@
+import math
 from fastapi import HTTPException
 from core.db import db
 from core.utils import now
@@ -80,6 +81,7 @@ async def build_quote(items: list, coupon_code=None, user_id=None) -> dict:
     products = {p["id"]: p async for p in db.products.find({"id": {"$in": ids}}, {"_id": 0})}
     lines, issues = [], []
     shipping_by_product = {}
+    total_weight_kg = 0.0
     for it in items:
         p = products.get(it["product_id"])
         qty = int(it.get("quantity") or 0)
@@ -109,13 +111,31 @@ async def build_quote(items: list, coupon_code=None, user_id=None) -> dict:
             "unit_price": unit, "regular_price": float(src.get("price") or unit), "quantity": qty,
             "line_total": round(unit * max(qty, 0), 2), "available": avail, "valid": line_issue is None,
         })
-        shipping_by_product[p["id"]] = float(p.get("shipping_charge") or 0)
+        # This product's own base delivery charge, plus its own per-unit extra
+        # for each quantity beyond the first — e.g. ৳100 for the first unit
+        # and ৳20 for each extra one ordered, configured on the product itself.
+        shipping_by_product[p["id"]] = float(p.get("shipping_charge") or 0) + float(p.get("extra_qty_charge") or 0) * max(0, qty - 1)
+        total_weight_kg += float(p.get("weight") or 0) * max(qty, 0)
     subtotal = round(sum(l["line_total"] for l in lines if l["valid"]), 2)
     settings = await get_settings()
     ship_cfg = settings.get("shipping", {})
     charges = list(shipping_by_product.values())
+    weight_rules = ship_cfg.get("weight_rules") or {}
     if not lines:
         shipping = 0.0
+    elif weight_rules.get("enabled"):
+        # Each product keeps its own "Delivery charge" as its base (combined
+        # via the same Sum/Highest rule as the plain fallback below) — the
+        # weight settings only add a surcharge for weight beyond the free
+        # allowance (also accounting for each line's quantity), so per-product
+        # cost differences are preserved and weight just covers bulk/heavy
+        # combined orders. When this is left disabled, every order (single-
+        # or multi-product) keeps the original flat charge below, unaffected.
+        base = max(charges) if ship_cfg.get("mode") == "highest" else sum(charges)
+        base_weight_kg = float(weight_rules.get("base_weight_kg") or 0)
+        per_kg_charge = float(weight_rules.get("per_kg_charge") or 0)
+        extra_kg = max(0.0, total_weight_kg - base_weight_kg)
+        shipping = base + math.ceil(extra_kg) * per_kg_charge
     elif ship_cfg.get("mode") == "highest":
         shipping = max(charges)
     else:
