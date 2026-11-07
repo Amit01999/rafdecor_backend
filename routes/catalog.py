@@ -20,9 +20,15 @@ def public_product(p: dict, full: bool = False) -> dict:
     variants = []
     for v in p.get("variants") or []:
         s = stock_of(p, v)
-        variants.append({"id": v["id"], "sku": v.get("sku"), "attributes": v.get("attributes"), "price": v.get("price"),
-                         "sale_price": v.get("sale_price"), "effective_price": effective(v), "on_sale": on_sale(v),
-                         "in_stock": s is None or s > 0, "available": s})
+        variant = {"id": v["id"], "sku": v.get("sku"), "attributes": v.get("attributes"), "price": v.get("price"),
+                   "sale_price": v.get("sale_price"), "effective_price": effective(v), "on_sale": on_sale(v),
+                   "in_stock": s is None or s > 0, "available": s}
+        if full:
+            if v.get("name"):
+                variant["name"] = v["name"]
+            if v.get("image"):
+                variant["image"] = v["image"]
+        variants.append(variant)
     out["variants"] = variants
     prices = [v["effective_price"] for v in variants] or [effective(p)]
     out["price_min"], out["price_max"] = min(prices), max(prices)

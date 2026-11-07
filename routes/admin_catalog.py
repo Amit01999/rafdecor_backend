@@ -31,12 +31,14 @@ class Attribute(BaseModel):
 
 class Variant(BaseModel):
     id: Optional[str] = None
+    name: Optional[str] = Field(default=None, max_length=120)
     sku: str = Field(default="", max_length=60)
     attributes: Dict[str, str]
     price: float = Field(ge=0)
     sale_price: Optional[float] = Field(default=None, ge=0)
     stock_quantity: Optional[int] = Field(default=None, ge=0)
     stock_status: Literal["in_stock", "out_of_stock"] = "in_stock"
+    image: Optional[Image] = None
     wp_id: Optional[int] = None
 
 
@@ -89,6 +91,10 @@ def _prepare(body: ProductIn) -> dict:
         raise HTTPException(422, "Sale price must be lower than the regular price")
     for v in d["variants"]:
         v["id"] = v["id"] or new_id()
+        if not v.get("name"):
+            v.pop("name", None)
+        if v.get("image") is None:
+            v.pop("image", None)
         if v["sale_price"] is not None and v["sale_price"] >= v["price"]:
             raise HTTPException(422, "Variant sale price must be lower than its regular price")
     d["sku"] = (d["sku"] or "").strip() or None
